@@ -1,204 +1,255 @@
-# Zettlab D6 Ultra: Frigate + Intel NPU + Intel Arc iGPU + Ollama
+# Zettlab D6 Ultra — Frigate Intel NPU + Ollama Intel Arc iGPU + Home Assistant AI Email Alerts
 
-**Local AI security camera alerts on an Intel Core Ultra NAS, with no cloud AI API required.**
+Run a local camera AI pipeline on a Zettlab D6 Ultra NAS: **Intel NPU detects people**, **Intel Arc iGPU runs Ollama/Qwen3-VL to describe them**, and **Home Assistant sends the description by email through SMTP**.
 
-This project demonstrates an **Intel Core Ultra 5 125H / 32 GB RAM Zettlab D6 Ultra** setup using:
+Tested setup described by the project author: **Intel Core Ultra 5 125H**, Frigate **0.18 series**, Ollama **Qwen3-VL 8B**, Reolink RTSP camera, Home Assistant, and an MQTT broker. This is a community guide, not an official Zettlab or Frigate release. Other NAS firmware, Intel drivers, cameras, or Frigate versions may need adjustments.
 
-- **Frigate 0.18.2** + **OpenVINO on the Intel NPU** for `person`, `car`, etc. detection
-- **Ollama on the Intel Arc iGPU (Vulkan)** with **Qwen3-VL** for natural-language descriptions
-- **MQTT + optional Home Assistant** to email descriptions and event timestamps
-- An **RTSP camera** (Reolink in the original setup; other RTSP cameras can work)
+> **Privacy:** All files in this repository are public-safe **examples**, not a direct export of private NAS configuration. Do **not** paste your real NAS, camera, MQTT or Gmail credentials into GitHub. The Frigate configuration stored here has placeholder values.
 
-> **Status and provenance:** This is a **sanitized starter configuration based on a working personal deployment**, not a byte-for-byte export of the live NAS. The NPU detector and Intel GPU Ollama inference were verified in that setup. Object-description email alerts were working; full-video Review AI summaries were **not** consistently working due to large image prompts and 120-second timeouts. This repository enables **single-snapshot person object descriptions** by default and leaves Review GenAI disabled. Adjustments may be needed for your Zettlab firmware, host Intel drivers, camera, and model.
+## The 4 important files
 
-## How it works
+Follow the steps **in the order shown below**:
+
+| Order | File | What it does |
+|---|---|---|
+| **1. Install Frigate** | [`docker-compose.frigate.yml`](docker-compose.frigate.yml) | Runs Frigate with the Intel NPU (`/dev/accel`) and Intel iGPU (`/dev/dri`) exposed |
+| **2. Configure Frigate** | [`frigate/config.example.yml`](frigate/config.example.yml) | Enables OpenVINO NPU detection, Reolink RTSP, person-only AI descriptions, recordings and MQTT |
+| **3. Install Ollama** | [`docker-compose.ollama.yml`](docker-compose.ollama.yml) | Runs Qwen3-VL on the Intel iGPU and connects to Frigate's Docker network |
+| **4. Create Home Assistant automation** | [`home-assistant/person-ai-email.example.yaml`](home-assistant/person-ai-email.example.yaml) | Subscribes to Frigate's MQTT description events and sends an email through the SMTP integration |
+
+**Home Assistant SMTP and MQTT setup comes between steps 3 and 4.** You also need an **MQTT broker** (for example, Mosquitto) accessible to Frigate *before Frigate can establish its MQTT connection*. Home Assistant's MQTT integration is configured later in this guide.
+
+### System flow
 
 ```mermaid
 flowchart LR
-  CAM[RTSP Camera] --> F[Frigate NVR]
-  NPU[Intel NPU / OpenVINO] --> F
-  F -->|Person snapshot| O[Ollama / Qwen3-VL]
-  GPU[Intel Arc iGPU / Vulkan] --> O
-  O -->|AI description| F
-  F -->|frigate/tracked_object_update| MQTT[MQTT broker]
-  MQTT --> HA[Home Assistant]
-  HA --> MAIL[Email notification]
+  CAMERA["RTSP camera"] --> FRIGATE["Frigate container"]
+  NPU["Intel NPU / OpenVINO"] --> FRIGATE
+  FRIGATE -->|"Person snapshot"| OLLAMA["Ollama / Qwen3-VL 8B"]
+  GPU["Intel Arc iGPU / Vulkan"] --> OLLAMA
+  OLLAMA -->|"Generated description"| FRIGATE
+  FRIGATE --> MQTT["MQTT broker"]
+  MQTT --> HA["Home Assistant"]
+  HA --> SMTP["SMTP / email"]
 ```
-
-The NPU **detects the object**; the iGPU **runs the image-understanding model**. Neither guarantees a description for every event. The Ollama request must finish successfully first.
-
-## Repository files
-
-| File | Purpose |
-|---|---|
-| `docker-compose.yml` | Frigate and Ollama containers + Intel hardware access |
-| `.env.example` | Public placeholder values for private MQTT/RTSP settings |
-| `frigate/config.example.yml` | Sample Frigate NPU detector, Ollama GenAI, person alerts, recordings |
-| `home-assistant/person-ai-email.example.yaml` | Optional MQTT-to-email HA automation |
-| `.gitignore` | Prevents committing private `.env`, runtime config and camera media |
-| `SECURITY.md` | Privacy and publication checklist |
-
-## Frigate-only Docker Compose (actual NAS layout)
-
-The file [`docker-compose.frigate.yml`](docker-compose.frigate.yml) reproduces the separately provided Frigate container layout. It uses the `stable` image tag, mounts `./config:/config` and `./recordings:/media/frigate`, and passes both Intel devices into Frigate. No usernames or passwords are included.
-
-Run it from a directory containing your **private** Frigate configuration at `./config/config.yml`:
-
-```sh
-docker compose -f docker-compose.frigate.yml up -d
-```
-
-**Choose one Compose setup, not both:** the root `docker-compose.yml` demonstrates Frigate **plus Ollama** in one Docker Compose project, whereas `docker-compose.frigate.yml` only runs Frigate. If Ollama runs in a different stack, `http://ollama:11434` will not resolve unless both containers are attached to the same Docker network (or the Ollama URL is changed to a reachable address). The example `frigate/config.example.yml` uses the root combined Compose layout and expects `FRIGATE_...` environment variables; adapt your private config when using the Frigate-only example. `stable` may advance beyond 0.18; pin a Frigate version for reproducible behavior.
 
 ## Prerequisites
 
-1. An x86-64 Zettlab NAS (or Linux host) with **Intel Core Ultra NPU** and **Intel Arc iGPU**, with devices exposed by the host kernel. Other Zettlab models may not have an Intel NPU.
-2. Docker Engine + Docker Compose.
-3. A working RTSP camera and an accessible MQTT broker (e.g. Mosquitto in Home Assistant).
-4. A host kernel/Intel NPU firmware combination compatible with Frigate's bundled OpenVINO/Intel NPU runtime. Do **not** mount host NPU libraries into the container.
-5. Host `/dev/accel/accel0` and `/dev/dri/renderD128` (render node number can vary).
+- Zettlab D6 Ultra or compatible Intel Core Ultra Linux NAS with Docker Compose support and working Intel NPU + integrated GPU devices. Not every Zettlab model includes an NPU.
+- A supported **RTSP camera** (original setup used Reolink).
+- An **MQTT broker** such as Mosquitto, with a dedicated account for Frigate. Install/start the broker before expecting Frigate MQTT to connect.
+- Home Assistant with administrator access and an email provider/account usable for SMTP. For Gmail, use an **app password** if your account and security settings support it; never publish the password.
+- Enough storage for camera recordings, enough available system memory for Frigate and the chosen vision model, and host Intel GPU drivers/NPU firmware compatible with the containers.
 
-Check the hardware **on the NAS host**, not inside the Windows command prompt:
+On the NAS **host**, check devices:
 
 ```sh
 ls -la /dev/accel /dev/dri
 ```
 
-## Quick start
+You should see an Intel NPU device under `/dev/accel` and render devices under `/dev/dri`. Device numbering varies. The actual provided Frigate and Ollama Compose files are kept unchanged in this repository.
 
-### 1. Download/clone, then create the private files
+## Step 1 — Install the Frigate Docker container
 
-```sh
-cp .env.example .env
-mkdir -p frigate/config frigate/media ollama/data
-cp frigate/config.example.yml frigate/config/config.yml
-```
-
-Edit **`.env`** with your actual broker IP/user/password and full camera RTSP URL. Keep it private. If your camera password contains reserved URL characters, percent-encode them within the RTSP URL.
-
-Edit **`frigate/config/config.yml`** as needed:
-
-- `cameras.reolink.detect.width/height` must match your camera's **detect stream** (the example's 1920x720 is specific to one camera setup).
-- Update `ui.timezone` and retention periods.
-- Reolink RTSP paths differ among camera models. Test the stream before debugging object detection.
-- The built-in `/openvino-model/ssdlite_mobilenet_v2.xml` and matching label map are from Frigate's OpenVINO getting-started example.
-
-**Do not paste passwords directly into the public sample YAML.** Frigate substitutes the `FRIGATE_...` variables set in Docker Compose.
-
-### 2. Start containers
-
-```sh
-docker compose config --quiet
-docker compose up -d
-```
-
-Open `https://YOUR-NAS-LAN-IP:8971` and finish Frigate's initial authentication setup. The HTTPS certificate may be self-signed.
-
-### 3. Download the vision model
-
-The uploaded Frigate example now uses **Qwen3-VL 8B Instruct**, matching the provided Zettlab configuration. Download that model before enabling GenAI:
-
-```sh
-docker compose exec ollama ollama pull qwen3-vl:8b-instruct
-```
-
-For lower latency and memory usage, **4B** is an optional alternative:
-
-```sh
-docker compose exec ollama ollama pull qwen3-vl:4b-instruct
-```
-
-If switching to 4B, also change `genai.local_ollama.model` in the private `frigate/config/config.yml`, then restart Frigate. The model tag in Frigate must match the tag pulled in Ollama.
-
-### 4. Verify GPU/NPU and AI messages
-
-```sh
-# Check Ollama's loaded-model processor (after at least one AI request):
-docker compose exec ollama ollama ps
-
-# Inspect recent Ollama and Frigate logs:
-docker compose logs --tail=100 ollama
-docker compose logs --tail=100 frigate
-```
-
-When a Qwen3-VL model is loaded and executing on the iGPU, `ollama ps` should show a GPU processor percentage. If it says CPU, check `/dev/dri`, Vulkan, drivers and Ollama logs; `OLLAMA_IGPU_ENABLE=1` was helpful on the original Intel Arc iGPU setup.
-
-In Frigate **System Metrics**, check that the `intel_npu` detector is active and inference timings are available. The original setup observed approximately **6 ms** NPU inference, but speed varies.
-
-For descriptions, use an MQTT client or **Home Assistant → Settings → Devices & services → MQTT → Configure → Listen to a topic**:
-
-```text
-frigate/tracked_object_update
-```
-
-A successful AI object description uses an event resembling:
-
-```json
-{
-  "type": "description",
-  "id": "EXAMPLE-EVENT-ID",
-  "description": "A person wearing a dark jacket is walking past the entrance."
-}
-```
-
-This example is illustrative, not an actual recording.
-
-### 5. Optional Home Assistant email alerts
-
-Import/adapt `home-assistant/person-ai-email.example.yaml` into Home Assistant's automation editor. Replace `notify.YOUR_SMTP_ENTITY` with your actual working notification entity. Test SMTP separately first.
-
-**Note:** The object-description MQTT message has an event ID and description but not a ready-to-send image or clip attachment. The example includes **links** to Frigate media, not attached files. They generally require a valid Frigate login and can return HTTP **401 Unauthorized** when opened outside an authenticated session. The recording must exist for a clip to play.
-
-## Known limitations / troubleshooting
-
-| Symptom | Things to check |
-|---|---|
-| `NPU` not found | Host `/dev/accel`, firmware compatibility, Docker device mapping |
-| Ollama model running on CPU | `/dev/dri`, Intel Vulkan drivers, Ollama logs, `OLLAMA_IGPU_ENABLE` |
-| No description MQTT events | Enable `objects.genai`, track `person`, wait until an object exits, inspect Frigate/Ollama logs |
-| `request (25909 tokens) exceeds ... 16384` | Review-video requests sent too many frames/tokens. Snapshot-only object descriptions are the default here |
-| `POST /api/generate` fails after ~120s | Model timed out. Try 4B, avoid parallel requests and disable heavy Review GenAI |
-| Frigate media link returns 401 | Authenticated port 8971 requires a login; don't expose port 5000 to bypass authentication |
-| Missing photo/video in email | MQTT description messages contain only text and an event ID; file attachments need a separate HA media download/email step |
-
-## Enabling optional full-video Review AI
-
-The sample sets `review.genai.enabled: false` because long multi-frame reviews overwhelmed the original 8B/16K-context setup. After snapshot descriptions work reliably, you can experiment with `review.genai.enabled: true`; keep `image_source: preview` first. Watch Frigate's `review_descriptions` logs and Ollama's context/timeout errors. Review summaries and object descriptions are **different** pipelines and MQTT message types.
-
-## Publish to GitHub
-
-1. Create a **public** repository at [github.com/new](https://github.com/new) named `zettlab-frigate-intel-npu-igpu` (leave auto-generated README unchecked because this project already contains one).
-2. From the directory containing these files, run the following commands after reviewing their contents:
+1. On the NAS, create a dedicated installation directory; for example `/volume1/docker/frigate-ai` (change this to the path supported by your Zettlab NAS).
+2. Copy [`docker-compose.frigate.yml`](docker-compose.frigate.yml) into that directory.
+3. Create **private**, local folders for the provided Frigate Compose mounts:
 
    ```sh
-   git init
-   git branch -M main
-   git add .
-   git status --short
-   git diff --cached --name-only
-   git commit -m "Share Frigate Intel NPU and Ollama iGPU example"
-   git remote add origin https://github.com/YOUR_GITHUB_USERNAME/zettlab-frigate-intel-npu-igpu.git
-   git push -u origin main
+   mkdir -p config recordings
    ```
 
-3. Replace `YOUR_GITHUB_USERNAME` before pushing. **Stop if `git status` lists `.env`, `frigate/config/config.yml`, camera media, or Ollama model files.** They must not be published.
-4. Optionally add an MIT license using GitHub's license chooser if you want others to reuse and redistribute the example under those terms.
-5. Share the final repository URL in the Zettlab Facebook group with your hardware and software versions. Do not post logs containing credentials or actual camera screenshots without checking privacy.
+4. Keep the Compose project name exactly **`frigate`**, because the separate Ollama Compose file expects the Docker network named **`frigate_default`**. Launch it from the directory where the Frigate Compose file lives:
 
-If you prefer GitHub's web interface, you can instead use **Add file → Upload files** and upload only the seven sample files from this project. Remember to preserve the `frigate/` and `home-assistant/` folder structure.
+   ```sh
+   docker compose -p frigate -f docker-compose.frigate.yml up -d
+   ```
 
-## Security notes
+   If Frigate restarts because its configuration is missing, continue with **Step 2**. To configure everything before starting Frigate, complete Step 2 first and then rerun the command above.
 
-Review [`SECURITY.md`](SECURITY.md) before making the repository public. This Compose file intentionally does **not** publish Ollama's port 11434 or Frigate's unauthenticated port 5000. It is still your responsibility to restrict host access to the LAN/VPN and set secure credentials.
+5. Confirm the Docker network exists:
+
+   ```sh
+   docker network inspect frigate_default
+   ```
+
+6. Frigate's web interface is **`https://YOUR-NAS-IP:8971`**. Complete login/authentication setup once the container is healthy.
+
+**Ports and paths in your Compose:** HTTPS UI 8971, WebRTC TCP/UDP 8555, `./config:/config`, `./recordings:/media/frigate`, 512 MB shared memory, 1 GB tmpfs cache. Do **not** expose Frigate's unauthenticated internal port 5000 to the internet. The Compose file uses the `stable` image tag, which may advance to a later release; pin a specific tested tag when reproducibility matters.
+
+## Step 2 — Apply the Frigate app configuration YAML
+
+1. Copy [`frigate/config.example.yml`](frigate/config.example.yml) into the **private local** `config` directory you created in Step 1. Name the local file **`config/config.yml`**.
+2. Replace the **placeholder values only in your local private file**:
+
+   | Placeholder | Replace with |
+   |---|---|
+   | `{FRIGATE_MQTT_HOST}` | Your MQTT broker's LAN IP or hostname |
+   | `{FRIGATE_MQTT_USER}` | Your dedicated Frigate MQTT username |
+   | `{FRIGATE_MQTT_PASSWORD}` | Your MQTT password |
+   | `{FRIGATE_CAMERA_RTSP_URL}` | Your full working RTSP URL (both ffmpeg and go2rtc entries) |
+   | `CHANGE_ME@example.com` | Your chosen contact email for Frigate browser push (not SMTP) |
+
+   **Important:** Your standalone Frigate Compose includes **only `TZ`** under `environment:`, so the `FRIGATE_...` placeholders in the public YAML do **not** receive values automatically from `.env.example` with this Compose. For the provided standalone setup, **replace placeholders in the local, gitignored `config/config.yml`**. Alternatively, advanced users can explicitly add the `FRIGATE_...` container environment variables to their private deployment; do not commit them.
+
+3. The RTSP URL must match **your camera**. Percent-encode reserved characters in the RTSP username/password where required. Test the URL locally rather than publishing it.
+4. Verify that the detection stream dimensions match the example `detect.width: 1920`, `height: 720`, and `fps: 5`, or change them for your stream.
+5. Restart the container and check Frigate's **System Metrics** for the `intel_npu` detector:
+
+   ```sh
+   docker compose -p frigate -f docker-compose.frigate.yml restart frigate
+   docker compose -p frigate -f docker-compose.frigate.yml logs --tail=100 frigate
+   ```
+
+### What the supplied Frigate YAML enables
+
+- OpenVINO detector with `device: NPU` and the supplied 300×300 object model.
+- Tracking **person, cat, mouse, car**; **person-only Review alerts** and AI **object** descriptions.
+- `objects.genai.use_snapshot: true` to analyze one person snapshot rather than many video frames.
+- **Qwen3-VL 8B Instruct** through `http://ollama:11434`.
+- Motion recording, 14-day alert/detection retention and snapshots, Reolink/go2rtc, face recognition, semantic search, and audio detection as in the example.
+- **Full Review GenAI summaries disabled** by default: `review.genai.enabled: false`. This is intentional because the original 8B installation had multi-frame context overflow and 120-second timeout errors.
+
+**Detection and recording can be configured before Ollama is installed.** AI descriptions cannot work until Step 3 is complete.
+
+## Step 3 — Install the separate Ollama Docker container
+
+1. Put [`docker-compose.ollama.yml`](docker-compose.ollama.yml) in an **Ollama-specific folder**, such as `/volume1/docker/ollama`. Its `./data` is relative to that folder and stores downloaded models.
+2. Make sure the Frigate network `frigate_default` already exists from Step 1.
+3. Start Ollama:
+
+   ```sh
+   mkdir -p data
+   docker compose -f docker-compose.ollama.yml up -d
+   ```
+
+4. Download the exact model specified in the Frigate YAML:
+
+   ```sh
+   docker exec ollama ollama pull qwen3-vl:8b-instruct
+   ```
+
+5. After an AI request, check acceleration and logs:
+
+   ```sh
+   docker exec ollama ollama ps
+   docker logs --tail=100 ollama
+   ```
+
+   When the model is loaded, check the **PROCESSOR** column in `ollama ps`. The original setup reported **100% GPU** with the Intel iGPU flags. If it reports CPU, check host `/dev/dri`, Intel Vulkan driver support, container permissions and Ollama logs.
+
+The provided Ollama Compose uses **`mem_limit: 32g`**, the Intel iGPU `/dev/dri`, Vulkan-related environment settings, a 16,384-token context, and 5-minute keep-alive. **On a 32 GB RAM NAS, a 32 GB Ollama limit does not reserve memory for Frigate/other services**; monitor total RAM and lower the limit or switch to a smaller vision model if the NAS experiences out-of-memory failures.
+
+### Verify Frigate can reach Ollama
+
+Both containers must be on **`frigate_default`**. The provided Ollama file joins that external network, while the Frigate file creates it only if started with project name `frigate`.
+
+Inspect the network members:
+
+```sh
+docker network inspect frigate_default
+```
+
+Frigate uses `http://ollama:11434` as configured in its private YAML. The Ollama hostname resolves only when both containers share an appropriate Docker network. Do not publish Ollama port 11434 to the public internet.
+
+Trigger a real person detection. In Frigate, check that the person was detected and that Ollama produced an object description. If it is slow or times out, try `qwen3-vl:4b-instruct` as an **optional** performance alternative, and change Frigate's model tag to match.
+
+## Step 4 — Home Assistant: install/configure SMTP first
+
+1. In **Home Assistant → Settings → Devices & services → Add integration**, search for **SMTP**. Set up your email provider's SMTP server, port, encryption, sender email, recipient(s), and credentials using Home Assistant's UI or supported YAML configuration for your HA version.
+2. For Gmail, follow its SMTP/App Password requirements; never store the app password in your public GitHub files.
+3. Find the resulting notification entity (such as `notify.YOUR_SMTP_ENTITY`) under **Settings → Devices & services → Entities** or **Developer tools → Actions**, depending on your Home Assistant version.
+4. Test SMTP before configuring any MQTT email automation:
+
+   ```yaml
+   action: notify.send_message
+   target:
+     entity_id: notify.YOUR_SMTP_ENTITY
+   data:
+     title: "Frigate email test"
+     message: "SMTP notification is working."
+   ```
+
+Use the entity ID your Home Assistant installation actually exposes. If the SMTP setup instead provides a service-specific action, use that integration's documented action.
+
+**Frigate's `notifications.email` setting is not an SMTP email sender.** It does not replace Home Assistant SMTP setup.
+
+## Step 5 — Home Assistant: install/configure MQTT
+
+1. Make sure your **MQTT broker is already running** (for example, the Mosquitto broker add-on or a separate Mosquitto container), because Frigate's config references it.
+2. In **Home Assistant → Settings → Devices & services → Add integration → MQTT**, connect HA to the broker with the broker hostname/IP, port (usually 1883), and credentials. If MQTT is discovered automatically, use the discovered integration.
+3. In **MQTT → Configure → Listen to a topic**, enter:
+
+   ```text
+   frigate/tracked_object_update
+   ```
+
+4. Trigger a new **person** event and let it complete. The expected type of update for a successful AI object description is:
+
+   ```json
+   {
+     "type": "description",
+     "id": "EXAMPLE-EVENT-ID",
+     "description": "A person wearing a dark jacket walks near the entrance."
+   }
+   ```
+
+The actual event includes a unique ID. Frigate may publish other MQTT message types as well. An `end` event on `frigate/reviews` with `metadata: null` is **not** proof that an object description failed; Review summaries and object descriptions use separate pipelines.
+
+If Frigate is not publishing description messages, troubleshoot Frigate/Ollama first rather than changing SMTP.
+
+## Step 6 — Home Assistant: create the email automation
+
+1. Open **Home Assistant → Settings → Automations & scenes → Create automation → Edit in YAML**.
+2. Copy the complete YAML from [`home-assistant/person-ai-email.example.yaml`](home-assistant/person-ai-email.example.yaml).
+3. Replace `notify.YOUR_SMTP_ENTITY` with your **working SMTP notification entity** and `YOUR-NAS-LAN-IP` with the NAS address in your own **private HA automation**.
+4. Save and enable the automation; then test another person event.
+5. If the email does not arrive, inspect **Automations → Traces** and verify the message was received on `frigate/tracked_object_update` with `type: description`.
+
+The example email sends the AI **text**, the derived local event timestamp, and **photo/MP4 links**, not attachments. These links require an authenticated Frigate session and LAN/VPN access; opening the clip from an unauthenticated Gmail/browser session can return **401 Unauthorized**. Recordings must exist for a clip URL to play. Use a secure VPN or properly authenticated integration for remote viewing; **do not bypass authentication**.
+
+## Quick verification checklist
+
+- [ ] NPU and iGPU devices exist on the NAS host.
+- [ ] Frigate starts with the private `config/config.yml` and detects/tracks a person.
+- [ ] Docker network **`frigate_default`** exists and contains Frigate + Ollama.
+- [ ] Ollama has `qwen3-vl:8b-instruct` installed; `ollama ps` reports GPU use after a request.
+- [ ] Home Assistant SMTP test email arrives.
+- [ ] Home Assistant MQTT listener receives a `type: description` message.
+- [ ] Home Assistant automation sends the person description by email.
+
+## Troubleshooting
+
+| Symptom | Check |
+|---|---|
+| `/dev/accel` not found or NPU detector unavailable | Host kernel, Intel NPU firmware, mapping and Frigate logs |
+| Frigate YAML won't load | Replace private placeholders, check RTSP URL, validate syntax, inspect Frigate logs |
+| Ollama fails: external network missing | Start Frigate with `-p frigate` or attach both containers to the same network |
+| Frigate cannot resolve `ollama` | Verify both containers are on `frigate_default` and Ollama is running |
+| `ollama ps` shows CPU | Host `/dev/dri`, Vulkan driver availability, container permissions and Ollama logs |
+| Context-size error or 120-second timeout | Use snapshot object descriptions, disable Review GenAI, consider Qwen3-VL 4B |
+| Person detection works but no email | Check `frigate/tracked_object_update`, automation traces, then SMTP |
+| Video clip URL returns 401 | Authenticate to Frigate; never expose its unauthenticated API |
+| Missing snapshots or recording clip | Check that the media was recorded and retained; attachments need additional HA actions |
+
+## Privacy and publication safety
+
+This repository contains **placeholder configuration only**. In the actual standalone layout, keep these paths strictly local and untracked: `./config/`, `./recordings/`, and Ollama's `./data/`. The provided [`.gitignore`](.gitignore) excludes them. Also read [`SECURITY.md`](SECURITY.md).
+
+**Important before making this repository public:** earlier Git revisions may contain values that were later replaced. Changing the latest file does **not** remove them from Git history. Rotate any previously exposed credentials, and scrub the repository's Git history or recreate a clean repository before switching visibility to Public.
+
+## Optional alternative
+
+The root [`docker-compose.yml`](docker-compose.yml) is an **older combined Frigate + Ollama example**, **not the primary installation method**. Do not start it together with the two standalone Compose files: duplicate services/ports and differing volume paths will conflict. This guide intentionally prioritizes the author's four-file, two-container installation.
 
 ## References
 
-- [Frigate installation and Docker Compose](https://docs.frigate.video/frigate/installation/)
-- [Frigate OpenVINO detector and Intel NPU](https://docs.frigate.video/configuration/object_detectors/)
-- [Frigate OpenVINO sample model](https://docs.frigate.video/guides/getting_started/)
-- [Frigate object AI descriptions](https://docs.frigate.video/configuration/genai/genai_objects/)
-- [Frigate Ollama GenAI configuration](https://docs.frigate.video/configuration/genai/genai_config/)
-- [Frigate MQTT tracked object updates](https://docs.frigate.video/integrations/mqtt/)
-- [Ollama Docker GPU/Vulkan documentation](https://github.com/ollama/ollama/blob/main/docs/docker.mdx)
+- [Frigate installation](https://docs.frigate.video/frigate/installation/)
+- [Frigate OpenVINO object detector](https://docs.frigate.video/configuration/object_detectors/)
+- [Frigate object GenAI](https://docs.frigate.video/configuration/genai/genai_objects/)
+- [Frigate MQTT](https://docs.frigate.video/integrations/mqtt/)
+- [Home Assistant SMTP](https://www.home-assistant.io/integrations/smtp/)
+- [Home Assistant MQTT](https://www.home-assistant.io/integrations/mqtt/)
+- [Ollama Docker documentation](https://docs.ollama.com/docker)
 
-**Not officially affiliated with Zettlab, Frigate, Intel, Ollama, or Reolink.**
+**This project is unofficial and is not affiliated with Zettlab, Frigate, Intel, Ollama, Reolink, or Home Assistant.**
