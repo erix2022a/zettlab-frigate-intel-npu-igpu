@@ -35,6 +35,7 @@ logger:
 
 mqtt:
   enabled: true
+  # Example broker address: 192.168.1.10 (MQTT TCP port 1883)
   host: "{FRIGATE_MQTT_HOST}"
   port: 1883
   user: "{FRIGATE_MQTT_USER}"
@@ -71,6 +72,7 @@ cameras:
 
     ffmpeg:
       inputs:
+        # Example: rtsp://CAMERA_USER:CAMERA_PASSWORD@192.168.1.20:554/
         - path: "{FRIGATE_CAMERA_RTSP_URL}"
           roles:
             - record
@@ -230,6 +232,7 @@ snapshots:
 go2rtc:
   streams:
     reolink:
+      # Example: rtsp://CAMERA_USER:CAMERA_PASSWORD@192.168.1.20:554/
       - "{FRIGATE_CAMERA_RTSP_URL}"
 
 # ==========================================
