@@ -38,6 +38,18 @@ The NPU **detects the object**; the iGPU **runs the image-understanding model**.
 | `.gitignore` | Prevents committing private `.env`, runtime config and camera media |
 | `SECURITY.md` | Privacy and publication checklist |
 
+## Frigate-only Docker Compose (actual NAS layout)
+
+The file [`docker-compose.frigate.yml`](docker-compose.frigate.yml) reproduces the separately provided Frigate container layout. It uses the `stable` image tag, mounts `./config:/config` and `./recordings:/media/frigate`, and passes both Intel devices into Frigate. No usernames or passwords are included.
+
+Run it from a directory containing your **private** Frigate configuration at `./config/config.yml`:
+
+```sh
+docker compose -f docker-compose.frigate.yml up -d
+```
+
+**Choose one Compose setup, not both:** the root `docker-compose.yml` demonstrates Frigate **plus Ollama** in one Docker Compose project, whereas `docker-compose.frigate.yml` only runs Frigate. If Ollama runs in a different stack, `http://ollama:11434` will not resolve unless both containers are attached to the same Docker network (or the Ollama URL is changed to a reachable address). The example `frigate/config.example.yml` uses the root combined Compose layout and expects `FRIGATE_...` environment variables; adapt your private config when using the Frigate-only example. `stable` may advance beyond 0.18; pin a Frigate version for reproducible behavior.
+
 ## Prerequisites
 
 1. An x86-64 Zettlab NAS (or Linux host) with **Intel Core Ultra NPU** and **Intel Arc iGPU**, with devices exposed by the host kernel. Other Zettlab models may not have an Intel NPU.
