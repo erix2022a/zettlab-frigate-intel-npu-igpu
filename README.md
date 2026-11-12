@@ -33,6 +33,22 @@ flowchart LR
   HA --> SMTP["SMTP / email"]
 ```
 
+## Example LAN addresses and ports (dummy values)
+
+All addresses in this table are **illustrations, not the author's actual network**. The examples use the same home-LAN pattern (`192.168.1.x`) that readers are likely to recognize. **Replace them with addresses on your own network**; don't publish real IPs, usernames, passwords, or email addresses.
+
+| Service | Example IP or address | Port | Example connection |
+|---|---|---|---|
+| MQTT broker (e.g. Mosquitto) | `192.168.1.10` | `1883` | `192.168.1.10:1883` |
+| Reolink / other RTSP camera | `192.168.1.20` | `554` | `rtsp://CAMERA_USER:CAMERA_PASSWORD@192.168.1.20:554/` |
+| Zettlab NAS / Frigate HTTPS | `192.168.1.30` | `8971` | `https://192.168.1.30:8971` |
+| Home Assistant interface | `192.168.1.40` | `8123` | `http://192.168.1.40:8123` |
+| Ollama (inside the shared Docker network) | `ollama` | `11434` | `http://ollama:11434` |
+
+The camera URL shown is a **format example**: `CAMERA_USER` and `CAMERA_PASSWORD` are not real credentials. Your camera's required RTSP path may differ. The Ollama address is a **Docker-internal hostname**, not another LAN IP; both containers must share the `frigate_default` network.
+
+**Where to type commands:** `ollama pull`, `ollama list`, and `ollama ps` run **inside the Ollama container's Terminal** through the Zettlab OS portal. `docker compose` and `docker network inspect` are NAS **host shell** commands, not commands for the container Terminal. In Zettlab OS, container logs are in **Docker → Containers → Container Details → Logs**.
+
 ## Prerequisites
 
 - Zettlab D6 Ultra or compatible Intel Core Ultra Linux NAS with Docker Compose support and working Intel NPU + integrated GPU devices. Not every Zettlab model includes an NPU.
@@ -73,7 +89,7 @@ You should see an Intel NPU device under `/dev/accel` and render devices under `
    docker network inspect frigate_default
    ```
 
-6. Frigate's web interface is **`https://YOUR-NAS-IP:8971`**. Complete login/authentication setup once the container is healthy.
+6. Frigate's web interface is **`https://192.168.1.30:8971`** in the dummy example (replace `192.168.1.30` with **your own NAS IP**). Complete login/authentication setup once the container is healthy.
 
 **Ports and paths in your Compose:** HTTPS UI 8971, WebRTC TCP/UDP 8555, `./config:/config`, `./recordings:/media/frigate`, 512 MB shared memory, 1 GB tmpfs cache. Do **not** expose Frigate's unauthenticated internal port 5000 to the internet. The Compose file uses the `stable` image tag, which may advance to a later release; pin a specific tested tag when reproducibility matters.
 
@@ -84,22 +100,23 @@ You should see an Intel NPU device under `/dev/accel` and render devices under `
 
    | Placeholder | Replace with |
    |---|---|
-   | `{FRIGATE_MQTT_HOST}` | Your MQTT broker's LAN IP or hostname |
-   | `{FRIGATE_MQTT_USER}` | Your dedicated Frigate MQTT username |
-   | `{FRIGATE_MQTT_PASSWORD}` | Your MQTT password |
-   | `{FRIGATE_CAMERA_RTSP_URL}` | Your full working RTSP URL (both ffmpeg and go2rtc entries) |
-   | `CHANGE_ME@example.com` | Your chosen contact email for Frigate browser push (not SMTP) |
+   | `{FRIGATE_MQTT_HOST}` | Example: `192.168.1.10` (broker), with `port: 1883` elsewhere in the YAML |
+   | `{FRIGATE_MQTT_USER}` | Example username format: `YOUR_MQTT_USERNAME` (not a real account) |
+   | `{FRIGATE_MQTT_PASSWORD}` | `YOUR_MQTT_PASSWORD` (set privately; never commit) |
+   | `{FRIGATE_CAMERA_RTSP_URL}` | Example: `rtsp://CAMERA_USER:CAMERA_PASSWORD@192.168.1.20:554/` in **both ffmpeg and go2rtc** |
+   | `CHANGE_ME@example.com` | Your private contact email for Frigate browser push (not Home Assistant SMTP) |
 
    **Important:** Your standalone Frigate Compose includes **only `TZ`** under `environment:`, so the `FRIGATE_...` placeholders in the public YAML do **not** receive values automatically from `.env.example` with this Compose. For the provided standalone setup, **replace placeholders in the local, gitignored `config/config.yml`**. Alternatively, advanced users can explicitly add the `FRIGATE_...` container environment variables to their private deployment; do not commit them.
 
 3. The RTSP URL must match **your camera**. Percent-encode reserved characters in the RTSP username/password where required. Test the URL locally rather than publishing it.
 4. Verify that the detection stream dimensions match the example `detect.width: 1920`, `height: 720`, and `fps: 5`, or change them for your stream.
-5. Restart the container and check Frigate's **System Metrics** for the `intel_npu` detector:
+5. Restart the container and check Frigate's **System Metrics** for the `intel_npu` detector. In **Zettlab OS portal → Docker → Containers → frigate → Container Details**, use **Restart** (when available) and open **Logs** for errors. From a separate NAS host shell, the restart command is:
 
    ```sh
    docker compose -p frigate -f docker-compose.frigate.yml restart frigate
-   docker compose -p frigate -f docker-compose.frigate.yml logs --tail=100 frigate
    ```
+
+   Do not run a `docker compose` command inside a container Terminal.
 
 ### What the supplied Frigate YAML enables
 
@@ -123,20 +140,30 @@ You should see an Intel NPU device under `/dev/accel` and render devices under `
    docker compose -f docker-compose.ollama.yml up -d
    ```
 
-4. Download the exact model specified in the Frigate YAML:
+4. **Install the model using the Zettlab OS web portal**, rather than NAS host-shell commands:
+   - Open **Zettlab OS portal → Docker → Containers**.
+   - Select the **ollama** container and open **Container Details → Terminal**.
+   - Start an interactive shell there and type:
 
    ```sh
-   docker exec ollama ollama pull qwen3-vl:8b-instruct
+   ollama pull qwen3-vl:8b-instruct
+   ollama list
    ```
 
-5. After an AI request, check acceleration and logs:
+   These commands are executed **inside the Ollama container**, so do not type `docker exec ollama ...` in the container Terminal.
+
+5. **Verify Intel iGPU acceleration and check logs using Zettlab OS:**
+   - Navigate to **Zettlab OS portal → Docker → Containers → ollama → Container Details → Terminal**.
+   - After Frigate sends an AI request, run:
 
    ```sh
-   docker exec ollama ollama ps
-   docker logs --tail=100 ollama
+   ollama ps
    ```
 
-   When the model is loaded, check the **PROCESSOR** column in `ollama ps`. The original setup reported **100% GPU** with the Intel iGPU flags. If it reports CPU, check host `/dev/dri`, Intel Vulkan driver support, container permissions and Ollama logs.
+   - Inspect the **PROCESSOR** column. In the original setup it reported **100% GPU** when the model was loaded. If no model is shown, trigger a new person AI description and check again.
+   - For errors and timeouts, open **Zettlab OS portal → Docker → Containers → ollama → Container Details → Logs**. Do not run `docker logs --tail=100 ollama` inside Ollama's container Terminal.
+
+   If `ollama ps` shows CPU, verify the Intel Vulkan drivers, host `/dev/dri`, Docker device mapping, permissions and container logs.
 
 The provided Ollama Compose uses **`mem_limit: 32g`**, the Intel iGPU `/dev/dri`, Vulkan-related environment settings, a 16,384-token context, and 5-minute keep-alive. **On a 32 GB RAM NAS, a 32 GB Ollama limit does not reserve memory for Frigate/other services**; monitor total RAM and lower the limit or switch to a smaller vision model if the NAS experiences out-of-memory failures.
 
@@ -202,7 +229,7 @@ If Frigate is not publishing description messages, troubleshoot Frigate/Ollama f
 
 1. Open **Home Assistant → Settings → Automations & scenes → Create automation → Edit in YAML**.
 2. Copy the complete YAML from [`home-assistant/person-ai-email.example.yaml`](home-assistant/person-ai-email.example.yaml).
-3. Replace `notify.YOUR_SMTP_ENTITY` with your **working SMTP notification entity** and `YOUR-NAS-LAN-IP` with the NAS address in your own **private HA automation**.
+3. Replace `notify.YOUR_SMTP_ENTITY` with your **working SMTP notification entity** and use your **real NAS IP** in the private HA automation (the sample URL uses dummy `https://192.168.1.30:8971`).
 4. Save and enable the automation; then test another person event.
 5. If the email does not arrive, inspect **Automations → Traces** and verify the message was received on `frigate/tracked_object_update` with `type: description`.
 
