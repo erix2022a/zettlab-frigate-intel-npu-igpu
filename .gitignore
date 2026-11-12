@@ -1,0 +1,26 @@
+# Never commit live credentials or runtime configuration.
+.env
+.env.*
+!.env.example
+frigate/config/
+frigate/media/
+ollama/data/
+
+# Camera recordings / snapshots / Frigate database
+*.mp4
+*.mkv
+*.webm
+*.jpg
+*.jpeg
+*.png
+*.webp
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# Miscellaneous
+.DS_Store
+Thumbs.db
+__pycache__/
