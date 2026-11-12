@@ -1,6 +1,32 @@
-# Sanitized sample Frigate 0.18.2 configuration.
-# This is a public TEMPLATE based on a Zettlab D6 Ultra setup, not a live backup.
-# Copy to frigate/config/config.yml, then adjust for your RTSP camera and retention.
+# ==========================================
+# FRIGATE 0.18 - ZETTLAB D6 ULTRA
+# Intel NPU + Intel Arc/Ollama + Reolink
+# Optimized for person alerts and local AI
+# ==========================================
+#
+# PUBLIC CONFIGURATION EXAMPLE — SANITIZED.
+# All camera/MQTT usernames, passwords, private IP addresses and emails
+# are intentionally excluded. Copy to frigate/config/config.yml and use
+# the environment variables in the repository's .env.example file.
+#
+# This sample corresponds to the user-supplied 8B setup (not the 4B starter).
+
+version: 0.18-0
+
+# ==========================================
+# LOGGING
+# ==========================================
+
+logger:
+  default: info
+  logs:
+    frigate.api.chat: debug
+    frigate.genai: debug
+    frigate.genai.plugins.ollama: debug
+
+# ==========================================
+# MQTT - HOME ASSISTANT
+# ==========================================
 
 mqtt:
   enabled: true
@@ -10,12 +36,15 @@ mqtt:
   password: "{FRIGATE_MQTT_PASSWORD}"
   topic_prefix: frigate
 
+# ==========================================
+# INTEL NPU OBJECT DETECTOR
+# ==========================================
+
 detectors:
   intel_npu:
     type: openvino
     device: NPU
 
-# Model shipped with the standard Frigate image.
 model:
   width: 300
   height: 300
@@ -24,70 +53,140 @@ model:
   path: /openvino-model/ssdlite_mobilenet_v2.xml
   labelmap_path: /openvino-model/coco_91cl_bkgr.txt
 
-# Both services run on the same Docker Compose network.
-# Pull the matching Qwen3-VL model before enabling descriptions.
-genai:
-  local_ollama:
-    provider: ollama
-    base_url: http://ollama:11434
-    model: qwen3-vl:4b-instruct
-    roles:
-      - descriptions
-      - chat
-    provider_options:
-      keep_alive: "5m"
-      options:
-        num_ctx: 16384
+detect:
+  enabled: true
 
-# Full Review-video summaries use multiple frames and may exceed the Ollama
-# context window or timeout on this NAS. Object snapshot descriptions below
-# are enabled as the reliable first step. Turn Review GenAI on only after testing.
-review:
-  genai:
-    enabled: false
-    alerts: true
-    detections: false
-    image_source: preview
+# ==========================================
+# REOLINK CAMERA
+# ==========================================
 
 cameras:
   reolink:
     enabled: true
+
     ffmpeg:
       inputs:
+        # Define this RTSP URL in your private .env file.
         - path: "{FRIGATE_CAMERA_RTSP_URL}"
           roles:
-            - detect
             - record
-    # CHANGE these to your detect stream's actual frame dimensions.
+            - detect
+            - audio
+      apple_compatibility: true
+
     detect:
       enabled: true
       width: 1920
       height: 720
       fps: 5
+
+    live:
+      streams:
+        Stream 1: reolink
+
+    # --------------------------------------
+    # OBJECT DETECTION
+    # --------------------------------------
+
     objects:
       track:
         - person
         - cat
+        - mouse
         - car
+
+      mask:
+        object_mask_1:
+          friendly_name: Object Mask 1
+          enabled: false
+          coordinates: >-
+            0.213,0.142,0.47,0.996,0.711,0.99,0.765,0.82,0.722,0.789,0.773,0.556,0.751,0.374,0.455,0.063
+
+      # ------------------------------------
+      # GENAI OBJECT DESCRIPTIONS
+      # Only describe people.
+      # One snapshot to reduce AI workload.
+      # ------------------------------------
+
       genai:
         enabled: true
         objects:
           - person
         use_snapshot: true
         prompt: >-
-          Describe the visible {label} in this image from the {camera} camera.
-          Mention clothing, carried items, and observable actions.
-          State only what can be seen, in one or two short sentences.
-        debug_save_thumbnails: false
+          Describe the visible {label} in this image from
+          the {camera} camera. Mention clothing, carried
+          objects, and observable activity. Keep the
+          description factual and concise.
+        debug_save_thumbnails: true
+
+    # --------------------------------------
+    # MOTION DETECTION
+    # Masks disabled during testing.
+    # --------------------------------------
+
+    motion:
+      mask:
+        motion_mask_1:
+          friendly_name: Motion Mask 1
+          enabled: false
+          coordinates: >-
+            0.724,0.49,1,1,0.994,0.012,0.002,0.008,0.009,0.996,0.496,0.995,0.291,0.402,0.334,0.325,0.292,0.116,0.448,0.14
+
+    zones: {}
+
+    # --------------------------------------
+    # REVIEW ALERTS - PEOPLE ONLY
+    # Other tracked objects remain tracked, but camera
+    # Review detections are disabled in this example.
+    # --------------------------------------
+
     review:
       alerts:
         enabled: true
         labels:
           - person
       detections:
-        enabled: true
+        enabled: false
+      # Camera-level image source override provided in original setup.
+      # Inactive while global review.genai.enabled is false.
+      # If enabled later, "recordings" uses more AI image tokens.
+      genai:
+        image_source: recordings
+
+    # --------------------------------------
+    # PUSH NOTIFICATIONS (not Home Assistant SMTP)
+    # --------------------------------------
+
+    notifications:
+      enabled: true
+      cooldown: 30
+
+    # --------------------------------------
+    # CAMERA RECORDING
+    # No continuous retention.
+    # --------------------------------------
+
     record:
       enabled: true
+      continuous:
+        days: 0
+      motion:
+        days: 3
+
+    # --------------------------------------
+    # CAMERA AUDIO
+    # --------------------------------------
+
+    audio:
+      enabled: true
+
+    audio_transcription:
+      enabled: false
+
+# ==========================================
+# GLOBAL RECORDING SETTINGS
+# ==========================================
 
 record:
   enabled: true
@@ -104,21 +203,88 @@ record:
       days: 14
       mode: motion
 
+# ==========================================
+# SNAPSHOTS
+# ==========================================
+
 snapshots:
   enabled: true
-  timestamp: true
-  bounding_box: true
   retain:
     default: 14
 
-ui:
-  timezone: America/Los_Angeles # Change to your time zone
-  time_format: 12hour
+# ==========================================
+# GO2RTC REOLINK STREAM
+# ==========================================
 
-# Optional features on the D6 Ultra; enable after the core pipeline works:
-# face_recognition:
-#   enabled: true
-#   model_size: large
-# semantic_search:
-#   enabled: true
-#   model_size: large
+go2rtc:
+  streams:
+    reolink:
+      # Works when FRIGATE_CAMERA_RTSP_URL is set in the container
+      # environment by docker-compose.yml.
+      - "{FRIGATE_CAMERA_RTSP_URL}"
+
+# ==========================================
+# FACE RECOGNITION
+# ==========================================
+
+face_recognition:
+  enabled: true
+  model_size: large
+
+# ==========================================
+# SEMANTIC SEARCH
+# ==========================================
+
+semantic_search:
+  enabled: true
+  model_size: large
+
+# ==========================================
+# GLOBAL PUSH NOTIFICATIONS
+# ==========================================
+
+notifications:
+  enabled: true
+  # This contact value is for Frigate browser push/VAPID, not Gmail SMTP.
+  # Replace with your own email address in a PRIVATE configuration.
+  email: "CHANGE_ME@example.com"
+  cooldown: 10
+
+# ==========================================
+# LOCAL AI - OLLAMA
+# ==========================================
+
+genai:
+  local_ollama:
+    provider: ollama
+    base_url: http://ollama:11434
+    model: qwen3-vl:8b-instruct
+    roles:
+      - descriptions
+      - chat
+    provider_options:
+      keep_alive: "5m"
+      options:
+        num_ctx: 16384
+
+# ==========================================
+# AI REVIEW SUMMARIES
+# Disabled because multi-frame requests were too heavy
+# in the original deployment. Object-level AI remains ON.
+# ==========================================
+
+review:
+  genai:
+    enabled: false
+    alerts: true
+    detections: false
+    image_source: preview
+    debug_save_thumbnails: true
+
+# ==========================================
+# USER INTERFACE
+# ==========================================
+
+ui:
+  timezone: America/Los_Angeles
+  time_format: 12hour
