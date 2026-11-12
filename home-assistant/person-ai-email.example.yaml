@@ -1,6 +1,9 @@
 # Optional Home Assistant automation.
 # Prerequisites: MQTT integration and SMTP notification entity already configured.
 # Replace notify.YOUR_SMTP_ENTITY with your own notifier.
+# Example Zettlab NAS / Frigate address: https://192.168.1.30:8971
+# Example Home Assistant address: http://192.168.1.40:8123
+# All addresses are DUMMY values, not real home network details.
 # Frigate example is configured to generate object descriptions only for persons.
 
 alias: "Frigate - AI Person Description Email"
@@ -33,10 +36,10 @@ actions:
         {{ trigger.payload_json['description'] }}
 
         SNAPSHOT (login required):
-        https://YOUR-NAS-LAN-IP:8971/api/events/{{ event_id }}/snapshot.jpg
+        https://192.168.1.30:8971/api/events/{{ event_id }}/snapshot.jpg
 
         VIDEO CLIP (if available; login required):
-        https://YOUR-NAS-LAN-IP:8971/api/events/{{ event_id }}/clip.mp4
+        https://192.168.1.30:8971/api/events/{{ event_id }}/clip.mp4
 
         Event ID: {{ event_id }}
 mode: queued
