@@ -24,3 +24,10 @@ ollama/data/
 .DS_Store
 Thumbs.db
 __pycache__/
+
+# Standalone Frigate Compose runtime paths (docker-compose.frigate.yml)
+/config/
+/recordings/
+
+# Standalone Ollama Compose runtime path (docker-compose.ollama.yml)
+/data/
