@@ -1,0 +1,30 @@
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    restart: unless-stopped
+    mem_limit: 32g
+
+    devices:
+      - /dev/dri:/dev/dri
+
+    environment:
+      OLLAMA_HOST: 0.0.0.0:11434
+      OLLAMA_VULKAN: "1"
+      OLLAMA_IGPU_ENABLE: "1"
+      OLLAMA_NO_CLOUD: "1"
+      OLLAMA_NUM_PARALLEL: "1"
+      OLLAMA_MAX_LOADED_MODELS: "1"
+      OLLAMA_CONTEXT_LENGTH: "16384"
+      OLLAMA_KEEP_ALIVE: 5m
+
+    volumes:
+      - ./data:/root/.ollama
+
+    networks:
+      - frigate
+
+networks:
+  frigate:
+    external: true
+    name: frigate_default
