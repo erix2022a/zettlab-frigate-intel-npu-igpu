@@ -1,3 +1,8 @@
+# PUBLIC EXAMPLE ONLY. Credentials below are placeholders.
+# For docker-compose.frigate.yml create a PRIVATE ./config/config.yml
+# and replace placeholders there, or supply FRIGATE_* container variables.
+# Never commit your private config/ directory.
+
 # ==========================================
 # FRIGATE 0.18 - ZETTLAB D6 ULTRA
 # Intel NPU + Intel Arc/Ollama + Reolink
@@ -30,10 +35,10 @@ logger:
 
 mqtt:
   enabled: true
-  host: 192.168.1.2
+  host: "{FRIGATE_MQTT_HOST}"
   port: 1883
-  user: frigate
-  password: pw4frigate
+  user: "{FRIGATE_MQTT_USER}"
+  password: "{FRIGATE_MQTT_PASSWORD}"
   topic_prefix: frigate
 
 # ==========================================
@@ -66,7 +71,7 @@ cameras:
 
     ffmpeg:
       inputs:
-        - path: rtsp://admin:pw@192.168.1.3:554/
+        - path: "{FRIGATE_CAMERA_RTSP_URL}"
           roles:
             - record
             - detect
@@ -225,7 +230,7 @@ snapshots:
 go2rtc:
   streams:
     reolink:
-      - rtsp://admin:pw@192.168.1.3:554/
+      - "{FRIGATE_CAMERA_RTSP_URL}"
 
 # ==========================================
 # FACE RECOGNITION
@@ -249,7 +254,7 @@ semantic_search:
 
 notifications:
   enabled: true
-  email: youremail@gmail.com
+  email: "CHANGE_ME@example.com"
   cooldown: 10
 
 # ==========================================
@@ -292,6 +297,3 @@ review:
 ui:
   timezone: America/Los_Angeles
   time_format: 12hour
-
-
-use above instead
