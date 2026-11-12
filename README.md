@@ -60,7 +60,15 @@ All addresses in this table are **illustrations, not the author's actual network
 
 The camera URL shown is a **format example**: `CAMERA_USER` and `CAMERA_PASSWORD` are not real credentials. Your camera's required RTSP path may differ. The Ollama address is a **Docker-internal hostname**, not another LAN IP; both containers must share the `frigate_default` network.
 
-**Where to type commands:** `ollama pull`, `ollama list`, and `ollama ps` run **inside the Ollama container's Terminal** through the Zettlab OS portal. `docker compose` and `docker network inspect` are NAS **host shell** commands, not commands for the container Terminal. In Zettlab OS, container logs are in **Docker → Containers → Container Details → Logs**.
+**Where to verify Docker:** For **all container verification**, open **Zettlab OS Portal → Docker → Containers → select the container → Container Details → Terminal**. Choose the **frigate** or **ollama** container as indicated in the steps below. Commands such as `ls`, `ollama list`, `ollama ps`, and the Python connectivity test run directly **inside** those terminals. Use **Container Details → Logs** for logs. The `docker compose` commands shown for initial deployment require a **separate NAS host terminal** (or the Zettlab Docker Compose interface); do **not** enter Docker CLI commands inside a container's Terminal.
+
+| Verify | Open this container's **Terminal** | Run |
+|---|---|---|
+| Intel NPU and GPU device passthrough | **frigate** | `ls -l /dev/accel /dev/dri` |
+| Frigate configuration mount | **frigate** | `ls -l /config/config.yml` |
+| Installed Ollama models | **ollama** | `ollama list` |
+| Ollama GPU processing | **ollama** | `ollama ps` |
+| Frigate reaching Ollama | **frigate** | Python command in Step 3 |
 
 ## Prerequisites
 
@@ -70,13 +78,13 @@ The camera URL shown is a **format example**: `CAMERA_USER` and `CAMERA_PASSWORD
 - Home Assistant with administrator access and an email provider/account usable for SMTP. For Gmail, use an **app password** if your account and security settings support it; never publish the password.
 - Enough storage for camera recordings, enough available system memory for Frigate and the chosen vision model, and host Intel GPU drivers/NPU firmware compatible with the containers.
 
-On the NAS **host**, check devices:
+**Verify after Frigate has been created (Step 1):** Open **Zettlab OS Portal → Docker → Containers → frigate → Container Details → Terminal** and run:
 
 ```sh
-ls -la /dev/accel /dev/dri
+ls -l /dev/accel /dev/dri
 ```
 
-You should see an Intel NPU device under `/dev/accel` and render devices under `/dev/dri`. Device numbering varies. The actual provided Frigate and Ollama Compose files are kept unchanged in this repository.
+This confirms the Intel devices are exposed **inside the Frigate container**: `/dev/accel` for the NPU and `/dev/dri` for the GPU. If either is missing, check your Zettlab Docker device mapping and host driver support. Device numbering varies. The provided standalone Docker Compose files are unchanged.
 
 ## Step 1 — Install the Frigate Docker container
 
@@ -96,11 +104,13 @@ You should see an Intel NPU device under `/dev/accel` and render devices under `
 
    If Frigate restarts because its configuration is missing, continue with **Step 2**. To configure everything before starting Frigate, complete Step 2 first and then rerun the command above.
 
-5. Confirm the Docker network exists:
+5. **Verify device access in the Frigate Terminal:** In **Zettlab OS Portal → Docker → Containers → frigate → Container Details → Terminal**, run:
 
    ```sh
-   docker network inspect frigate_default
+   ls -l /dev/accel /dev/dri
    ```
+
+   The paths should be visible inside Frigate. Verify the shared Docker network and Ollama connection later in **Step 3**, after Ollama has started.
 
 6. Frigate's web interface is **`https://192.168.1.30:8971`** in the dummy example (replace `192.168.1.30` with **your own NAS IP**). Complete login/authentication setup once the container is healthy.
 
@@ -123,13 +133,14 @@ You should see an Intel NPU device under `/dev/accel` and render devices under `
 
 3. The RTSP URL must match **your camera**. Percent-encode reserved characters in the RTSP username/password where required. Test the URL locally rather than publishing it.
 4. Verify that the detection stream dimensions match the example `detect.width: 1920`, `height: 720`, and `fps: 5`, or change them for your stream.
-5. Restart the container and check Frigate's **System Metrics** for the `intel_npu` detector. In **Zettlab OS portal → Docker → Containers → frigate → Container Details**, use **Restart** (when available) and open **Logs** for errors. From a separate NAS host shell, the restart command is:
+5. Restart the **frigate** container from **Zettlab OS Portal → Docker → Containers → frigate → Container Details → Restart** (when available). Then select **Terminal** in the same container and verify the mounted configuration and Intel hardware access:
 
    ```sh
-   docker compose -p frigate -f docker-compose.frigate.yml restart frigate
+   ls -l /config/config.yml
+   ls -l /dev/accel /dev/dri
    ```
 
-   Do not run a `docker compose` command inside a container Terminal.
+   If the configuration is missing, review the Compose volume mapping `./config:/config`. Inspect **Container Details → Logs** for startup errors. Once running, Frigate's own **System Metrics** screen provides an additional visual confirmation that the `intel_npu` detector is active. No host-level Docker CLI commands are needed for these checks.
 
 ### What the supplied Frigate YAML enables
 
@@ -180,19 +191,28 @@ You should see an Intel NPU device under `/dev/accel` and render devices under `
 
 The provided Ollama Compose uses **`mem_limit: 32g`**, the Intel iGPU `/dev/dri`, Vulkan-related environment settings, a 16,384-token context, and 5-minute keep-alive. **On a 32 GB RAM NAS, a 32 GB Ollama limit does not reserve memory for Frigate/other services**; monitor total RAM and lower the limit or switch to a smaller vision model if the NAS experiences out-of-memory failures.
 
-### Verify Frigate can reach Ollama
+### Verify Frigate can reach Ollama — using the Frigate Terminal
 
-Both containers must be on **`frigate_default`**. The provided Ollama file joins that external network, while the Frigate file creates it only if started with project name `frigate`.
+The provided Ollama Compose joins the external Docker network `frigate_default`; the Frigate container must be on that same network. Once both containers are running:
 
-Inspect the network members:
+1. Open **Zettlab OS Portal → Docker → Containers → frigate → Container Details → Terminal**.
+2. Run this command **inside the Frigate container** (not the Ollama container):
 
-```sh
-docker network inspect frigate_default
-```
+   ```sh
+   python3 -c 'import urllib.request; print(urllib.request.urlopen("http://ollama:11434/api/tags", timeout=10).status)'
+   ```
 
-Frigate uses `http://ollama:11434` as configured in its private YAML. The Ollama hostname resolves only when both containers share an appropriate Docker network. Do not publish Ollama port 11434 to the public internet.
+3. An HTTP **`200`** response means Frigate can reach Ollama's API by its Docker hostname. A name-resolution error or timeout means you should check `frigate_default`, the two containers' network attachments, and whether Ollama has started.
+4. Switch to **Zettlab OS Portal → Docker → Containers → ollama → Container Details → Terminal** and run:
 
-Trigger a real person detection. In Frigate, check that the person was detected and that Ollama produced an object description. If it is slow or times out, try `qwen3-vl:4b-instruct` as an **optional** performance alternative, and change Frigate's model tag to match.
+   ```sh
+   ollama list
+   ollama ps
+   ```
+
+   Confirm the 8B model is installed and the **PROCESSOR** column shows GPU usage after an AI request.
+
+Frigate connects to `http://ollama:11434` through Docker's internal network; do not publish Ollama port **11434** to the internet. Trigger a real person detection to verify object descriptions. If it is slow or times out, `qwen3-vl:4b-instruct` is an optional lighter model, but Frigate's configured model tag must match the installed model.
 
 ## Step 4 — Home Assistant: install/configure SMTP first
 
@@ -250,10 +270,10 @@ The example email sends the AI **text**, the derived local event timestamp, and 
 
 ## Quick verification checklist
 
-- [ ] NPU and iGPU devices exist on the NAS host.
-- [ ] Frigate starts with the private `config/config.yml` and detects/tracks a person.
-- [ ] Docker network **`frigate_default`** exists and contains Frigate + Ollama.
-- [ ] Ollama has `qwen3-vl:8b-instruct` installed; `ollama ps` reports GPU use after a request.
+- [ ] **Frigate Terminal:** `ls -l /dev/accel /dev/dri` confirms Intel device access.
+- [ ] **Frigate Terminal:** `ls -l /config/config.yml` confirms the private YAML file is mounted; Frigate detects/tracks a person.
+- [ ] **Frigate Terminal:** the Step 3 Python command returns HTTP `200` from `http://ollama:11434/api/tags` over `frigate_default`.
+- [ ] **Ollama Terminal:** `ollama list` shows `qwen3-vl:8b-instruct` and `ollama ps` reports GPU use after an AI request.
 - [ ] Home Assistant SMTP test email arrives.
 - [ ] Home Assistant MQTT listener receives a `type: description` message.
 - [ ] Home Assistant automation sends the person description by email.
@@ -262,11 +282,11 @@ The example email sends the AI **text**, the derived local event timestamp, and 
 
 | Symptom | Check |
 |---|---|
-| `/dev/accel` not found or NPU detector unavailable | Host kernel, Intel NPU firmware, mapping and Frigate logs |
-| Frigate YAML won't load | Replace private placeholders, check RTSP URL, validate syntax, inspect Frigate logs |
-| Ollama fails: external network missing | Start Frigate with `-p frigate` or attach both containers to the same network |
-| Frigate cannot resolve `ollama` | Verify both containers are on `frigate_default` and Ollama is running |
-| `ollama ps` shows CPU | Host `/dev/dri`, Vulkan driver availability, container permissions and Ollama logs |
+| `/dev/accel` not found or NPU detector unavailable | **Frigate Terminal:** `ls -l /dev/accel /dev/dri`; check Intel NPU firmware, device mapping, and **Frigate → Container Details → Logs** |
+| Frigate YAML won't load | **Frigate Terminal:** `ls -l /config/config.yml`; replace private placeholders, check RTSP URL, and review **Frigate → Container Details → Logs** |
+| Ollama fails: external network missing | Verify the Compose project/network name `frigate_default` in the Zettlab Docker interface; Frigate must be started as the `frigate` Compose project |
+| Frigate cannot resolve `ollama` | **Frigate Terminal:** run the Python HTTP test from Step 3; check network membership and whether Ollama is running |
+| `ollama ps` shows CPU | **Ollama Terminal:** `ollama ps`; check `ls -l /dev/dri`, Vulkan driver availability, container permissions, and **Ollama → Container Details → Logs** |
 | Context-size error or 120-second timeout | Use snapshot object descriptions, disable Review GenAI, consider Qwen3-VL 4B |
 | Person detection works but no email | Check `frigate/tracked_object_update`, automation traces, then SMTP |
 | Video clip URL returns 401 | Authenticate to Frigate; never expose its unauthenticated API |
