@@ -30,10 +30,10 @@ logger:
 
 mqtt:
   enabled: true
-  host: "{FRIGATE_MQTT_HOST}"
+  host: 192.168.1.2
   port: 1883
-  user: "{FRIGATE_MQTT_USER}"
-  password: "{FRIGATE_MQTT_PASSWORD}"
+  user: frigate
+  password: pw4frigate
   topic_prefix: frigate
 
 # ==========================================
@@ -66,8 +66,7 @@ cameras:
 
     ffmpeg:
       inputs:
-        # Define this RTSP URL in your private .env file.
-        - path: "{FRIGATE_CAMERA_RTSP_URL}"
+        - path: rtsp://admin:pw@192.168.1.3:554/
           roles:
             - record
             - detect
@@ -99,7 +98,7 @@ cameras:
         object_mask_1:
           friendly_name: Object Mask 1
           enabled: false
-          coordinates: >-
+          coordinates: 
             0.213,0.142,0.47,0.996,0.711,0.99,0.765,0.82,0.722,0.789,0.773,0.556,0.751,0.374,0.455,0.063
 
       # ------------------------------------
@@ -130,15 +129,18 @@ cameras:
         motion_mask_1:
           friendly_name: Motion Mask 1
           enabled: false
-          coordinates: >-
+          coordinates: 
             0.724,0.49,1,1,0.994,0.012,0.002,0.008,0.009,0.996,0.496,0.995,0.291,0.402,0.334,0.325,0.292,0.116,0.448,0.14
+
+    # --------------------------------------
+    # CAMERA ZONES
+    # --------------------------------------
 
     zones: {}
 
     # --------------------------------------
     # REVIEW ALERTS - PEOPLE ONLY
-    # Other tracked objects remain tracked, but camera
-    # Review detections are disabled in this example.
+    # Other tracked objects remain detections.
     # --------------------------------------
 
     review:
@@ -146,18 +148,16 @@ cameras:
         enabled: true
         labels:
           - person
+
       detections:
         enabled: false
-      # Camera-level image source override provided in original setup.
-      # Inactive while global review.genai.enabled is false.
-      # If enabled later, "recordings" uses more AI image tokens.
+
+    # --------------------------------------
+    # PUSH NOTIFICATIONS
+    # --------------------------------------
+
       genai:
         image_source: recordings
-
-    # --------------------------------------
-    # PUSH NOTIFICATIONS (not Home Assistant SMTP)
-    # --------------------------------------
-
     notifications:
       enabled: true
       cooldown: 30
@@ -169,8 +169,10 @@ cameras:
 
     record:
       enabled: true
+
       continuous:
         days: 0
+
       motion:
         days: 3
 
@@ -190,14 +192,18 @@ cameras:
 
 record:
   enabled: true
+
   continuous:
     days: 0
+
   motion:
     days: 3
+
   alerts:
     retain:
       days: 14
       mode: motion
+
   detections:
     retain:
       days: 14
@@ -219,9 +225,7 @@ snapshots:
 go2rtc:
   streams:
     reolink:
-      # Works when FRIGATE_CAMERA_RTSP_URL is set in the container
-      # environment by docker-compose.yml.
-      - "{FRIGATE_CAMERA_RTSP_URL}"
+      - rtsp://admin:pw@192.168.1.3:554/
 
 # ==========================================
 # FACE RECOGNITION
@@ -245,9 +249,7 @@ semantic_search:
 
 notifications:
   enabled: true
-  # This contact value is for Frigate browser push/VAPID, not Gmail SMTP.
-  # Replace with your own email address in a PRIVATE configuration.
-  email: "CHANGE_ME@example.com"
+  email: youremail@gmail.com
   cooldown: 10
 
 # ==========================================
@@ -259,18 +261,20 @@ genai:
     provider: ollama
     base_url: http://ollama:11434
     model: qwen3-vl:8b-instruct
+
     roles:
       - descriptions
       - chat
+
     provider_options:
-      keep_alive: "5m"
+      keep_alive: 5m
       options:
         num_ctx: 16384
 
 # ==========================================
 # AI REVIEW SUMMARIES
-# Disabled because multi-frame requests were too heavy
-# in the original deployment. Object-level AI remains ON.
+# Person alerts only.
+# Lower-resolution preview images.
 # ==========================================
 
 review:
@@ -288,3 +292,6 @@ review:
 ui:
   timezone: America/Los_Angeles
   time_format: 12hour
+
+
+use above instead
