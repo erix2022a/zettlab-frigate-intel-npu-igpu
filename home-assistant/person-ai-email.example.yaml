@@ -1,0 +1,43 @@
+# Optional Home Assistant automation.
+# Prerequisites: MQTT integration and SMTP notification entity already configured.
+# Replace notify.YOUR_SMTP_ENTITY with your own notifier.
+# Frigate example is configured to generate object descriptions only for persons.
+
+alias: "Frigate - AI Person Description Email"
+description: "Email person descriptions with event time and secured Frigate media links"
+triggers:
+  - trigger: mqtt
+    topic: frigate/tracked_object_update
+conditions:
+  - condition: template
+    value_template: >-
+      {{ trigger.payload_json.get('type') == 'description'
+         and (trigger.payload_json.get('description') or '')
+         | trim | length > 0 }}
+actions:
+  - variables:
+      event_id: "{{ trigger.payload_json['id'] }}"
+      event_time: >-
+        {{ (trigger.payload_json['id'].split('-')[0] | float)
+           | timestamp_custom('%Y-%m-%d %I:%M:%S %p', true) }}
+  - action: notify.send_message
+    target:
+      entity_id: notify.YOUR_SMTP_ENTITY
+    data:
+      title: "Frigate person AI alert - {{ event_time }}"
+      message: |-
+        Camera: reolink
+        Event time: {{ event_time }} (Home Assistant local timezone)
+
+        AI DESCRIPTION:
+        {{ trigger.payload_json['description'] }}
+
+        SNAPSHOT (login required):
+        https://YOUR-NAS-LAN-IP:8971/api/events/{{ event_id }}/snapshot.jpg
+
+        VIDEO CLIP (if available; login required):
+        https://YOUR-NAS-LAN-IP:8971/api/events/{{ event_id }}/clip.mp4
+
+        Event ID: {{ event_id }}
+mode: queued
+max: 10
