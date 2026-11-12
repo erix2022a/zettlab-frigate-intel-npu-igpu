@@ -1,0 +1,124 @@
+# Sanitized sample Frigate 0.18.2 configuration.
+# This is a public TEMPLATE based on a Zettlab D6 Ultra setup, not a live backup.
+# Copy to frigate/config/config.yml, then adjust for your RTSP camera and retention.
+
+mqtt:
+  enabled: true
+  host: "{FRIGATE_MQTT_HOST}"
+  port: 1883
+  user: "{FRIGATE_MQTT_USER}"
+  password: "{FRIGATE_MQTT_PASSWORD}"
+  topic_prefix: frigate
+
+detectors:
+  intel_npu:
+    type: openvino
+    device: NPU
+
+# Model shipped with the standard Frigate image.
+model:
+  width: 300
+  height: 300
+  input_tensor: nhwc
+  input_pixel_format: bgr
+  path: /openvino-model/ssdlite_mobilenet_v2.xml
+  labelmap_path: /openvino-model/coco_91cl_bkgr.txt
+
+# Both services run on the same Docker Compose network.
+# Pull the matching Qwen3-VL model before enabling descriptions.
+genai:
+  local_ollama:
+    provider: ollama
+    base_url: http://ollama:11434
+    model: qwen3-vl:4b-instruct
+    roles:
+      - descriptions
+      - chat
+    provider_options:
+      keep_alive: "5m"
+      options:
+        num_ctx: 16384
+
+# Full Review-video summaries use multiple frames and may exceed the Ollama
+# context window or timeout on this NAS. Object snapshot descriptions below
+# are enabled as the reliable first step. Turn Review GenAI on only after testing.
+review:
+  genai:
+    enabled: false
+    alerts: true
+    detections: false
+    image_source: preview
+
+cameras:
+  reolink:
+    enabled: true
+    ffmpeg:
+      inputs:
+        - path: "{FRIGATE_CAMERA_RTSP_URL}"
+          roles:
+            - detect
+            - record
+    # CHANGE these to your detect stream's actual frame dimensions.
+    detect:
+      enabled: true
+      width: 1920
+      height: 720
+      fps: 5
+    objects:
+      track:
+        - person
+        - cat
+        - car
+      genai:
+        enabled: true
+        objects:
+          - person
+        use_snapshot: true
+        prompt: >-
+          Describe the visible {label} in this image from the {camera} camera.
+          Mention clothing, carried items, and observable actions.
+          State only what can be seen, in one or two short sentences.
+        debug_save_thumbnails: false
+    review:
+      alerts:
+        enabled: true
+        labels:
+          - person
+      detections:
+        enabled: true
+    record:
+      enabled: true
+
+record:
+  enabled: true
+  continuous:
+    days: 0
+  motion:
+    days: 3
+  alerts:
+    retain:
+      days: 14
+      mode: motion
+  detections:
+    retain:
+      days: 14
+      mode: motion
+
+snapshots:
+  enabled: true
+  timestamp: true
+  bounding_box: true
+  retain:
+    default: 14
+
+ui:
+  timezone: America/Los_Angeles # Change to your time zone
+  time_format: 12hour
+
+# Optional features on the D6 Ultra; enable after the core pipeline works:
+# face_recognition:
+#   enabled: true
+#   model_size: large
+# semantic_search:
+#   enabled: true
+#   model_size: large
