@@ -84,19 +84,19 @@ Open `https://YOUR-NAS-LAN-IP:8971` and finish Frigate's initial authentication 
 
 ### 3. Download the vision model
 
-The sample uses **Qwen3-VL 4B Instruct**, which is a less demanding starting point for a NAS:
-
-```sh
-docker compose exec ollama ollama pull qwen3-vl:4b-instruct
-```
-
-For the **8B model used in the original experimental setup**:
+The uploaded Frigate example now uses **Qwen3-VL 8B Instruct**, matching the provided Zettlab configuration. Download that model before enabling GenAI:
 
 ```sh
 docker compose exec ollama ollama pull qwen3-vl:8b-instruct
 ```
 
-If switching to 8B, also change `genai.local_ollama.model` in `frigate/config/config.yml`, then restart Frigate. The model tag in Frigate must match the tag pulled in Ollama.
+For lower latency and memory usage, **4B** is an optional alternative:
+
+```sh
+docker compose exec ollama ollama pull qwen3-vl:4b-instruct
+```
+
+If switching to 4B, also change `genai.local_ollama.model` in the private `frigate/config/config.yml`, then restart Frigate. The model tag in Frigate must match the tag pulled in Ollama.
 
 ### 4. Verify GPU/NPU and AI messages
 
