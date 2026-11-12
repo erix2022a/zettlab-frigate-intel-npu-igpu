@@ -20,10 +20,6 @@ A Frigate **Tracked Object Details** panel demonstrates a person-description res
 
 Frigate **System Metrics** reports an `intel_npu` detector with approximately **6.81 ms** inference time in this example.
 
-> **Screenshot upload required:** The two image references above are embedded in Markdown, but the PNG files still need to be uploaded to the repository's [`screenshots/` folder](screenshots/README.md) before GitHub can display them. Download the provided screenshots ZIP, extract it, and use **GitHub → screenshots → Add file → Upload files**. Keep the exact filenames shown in the image links.
-
-> **Privacy warning:** The first screenshot includes children and part of a home. Review or redact those details before making the repository public. An AI-generated description is not guaranteed to be accurate.
-
 ## The 4 important files
 
 Follow the steps **in the order shown below**:
@@ -302,10 +298,6 @@ The example email sends the AI **text**, the derived local event timestamp, and 
 This repository contains **placeholder configuration only**. In the actual standalone layout, keep these paths strictly local and untracked: `./config/`, `./recordings/`, and Ollama's `./data/`. The provided [`.gitignore`](.gitignore) excludes them. Also read [`SECURITY.md`](SECURITY.md).
 
 **Important before making this repository public:** earlier Git revisions may contain values that were later replaced. Changing the latest file does **not** remove them from Git history. Rotate any previously exposed credentials, and scrub the repository's Git history or recreate a clean repository before switching visibility to Public.
-
-## Optional alternative
-
-The root [`docker-compose.yml`](docker-compose.yml) is an **older combined Frigate + Ollama example**, **not the primary installation method**. Do not start it together with the two standalone Compose files: duplicate services/ports and differing volume paths will conflict. This guide intentionally prioritizes the author's four-file, two-container installation.
 
 ## References
 
